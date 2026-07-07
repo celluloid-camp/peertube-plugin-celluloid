@@ -56,9 +56,90 @@
 }
 
 .celluloid-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   padding: 10px 14px;
   font-weight: 600;
   background: var(--greyBackgroundColor, #f5f5f5);
+}
+
+.celluloid-panel__title {
+  flex: 1 1 auto;
+}
+
+/* Inline link editor (owners / admins only). */
+.celluloid-edit-btn,
+.celluloid-editor__save,
+.celluloid-editor__unlink {
+  padding: 4px 10px;
+  border: 1px solid #ff8c00;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.celluloid-edit-btn:hover,
+.celluloid-editor__save {
+  background: #ff8c00;
+  color: #fff;
+}
+
+.celluloid-editor__unlink {
+  border-color: #d33;
+  color: #d33;
+}
+
+.celluloid-editor__unlink:hover {
+  background: #d33;
+  color: #fff;
+}
+
+.celluloid-edit-btn:disabled,
+.celluloid-editor__save:disabled,
+.celluloid-editor__unlink:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.celluloid-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--greyBackgroundColor, #eee);
+}
+
+.celluloid-editor__input {
+  flex: 1 1 220px;
+  min-width: 180px;
+  padding: 6px 10px;
+  border: 1px solid var(--inputBorderColor, #ccc);
+  border-radius: 4px;
+  background: var(--inputBackgroundColor, #fff);
+  color: var(--mainForegroundColor, #000);
+  font-size: 14px;
+}
+
+.celluloid-editor__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.celluloid-editor__message {
+  flex: 1 1 100%;
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.celluloid-hint {
+  padding: 10px 14px;
+  font-size: 13px;
+  opacity: 0.75;
 }
 
 .celluloid-panel__list {

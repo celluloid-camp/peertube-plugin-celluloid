@@ -3,6 +3,8 @@ import type { CelluloidAnnotation } from "../celluloid";
 
 interface AnnotationsResponse {
   linked: boolean;
+  canEdit: boolean;
+  projectReference?: string;
   celluloidUrl?: string;
   projectId?: string;
   project?: { title?: string } | null;
@@ -12,7 +14,7 @@ interface AnnotationsResponse {
 /** Minimal subset of the video.js player API we rely on. */
 interface Player {
   el: () => HTMLElement;
-  currentTime: () => number;
+  currentTime: (time?: number) => number;
   duration: () => number;
   on: (event: string, handler: () => void) => void;
   off: (event: string, handler: () => void) => void;
@@ -29,12 +31,13 @@ function formatTime(seconds: number): string {
 }
 
 class CelluloidWatch {
-  private readonly getBaseRouterRoute: () => string;
-  private readonly getAuthHeader: () => { [name: string]: string } | undefined;
+  private readonly helpers: RegisterClientOptions["peertubeHelpers"];
 
   private player: Player | null = null;
   private annotations: CelluloidAnnotation[] = [];
   private projectTitle = "";
+  private projectReference = "";
+  private canEdit = false;
   private videoUuid: string | null = null;
   private initialized = false;
 
@@ -45,36 +48,13 @@ class CelluloidWatch {
   private readonly onTimeUpdate = () => this.renderActive();
 
   constructor(options: RegisterClientOptions) {
-    this.getBaseRouterRoute = () =>
-      options.peertubeHelpers.getBaseRouterRoute();
-    this.getAuthHeader = () => options.peertubeHelpers.getAuthHeader();
+    this.helpers = options.peertubeHelpers;
   }
 
   async onVideo(video: { uuid: string }): Promise<void> {
     this.cleanup();
     this.videoUuid = video.uuid;
-
-    try {
-      const response = await fetch(
-        `${this.getBaseRouterRoute()}/videos/${video.uuid}/annotations`,
-        { headers: this.getAuthHeader() },
-      );
-      if (!response.ok) return;
-
-      const data = (await response.json()) as AnnotationsResponse;
-      // Ignore stale responses if the user already navigated to another video.
-      if (this.videoUuid !== video.uuid) return;
-      if (!data.linked || !Array.isArray(data.annotations)) return;
-
-      this.annotations = data.annotations
-        .slice()
-        .sort((a, b) => a.startTime - b.startTime);
-      this.projectTitle = data.project?.title ?? "";
-      this.maybeInit();
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.error("[celluloid] failed to load annotations", err);
-    }
+    await this.load(video.uuid);
   }
 
   onPlayer(player: Player): void {
@@ -82,13 +62,44 @@ class CelluloidWatch {
     this.maybeInit();
   }
 
+  private async load(uuid: string): Promise<void> {
+    try {
+      const response = await fetch(
+        `${this.helpers.getBaseRouterRoute()}/videos/${uuid}/annotations`,
+        { headers: this.helpers.getAuthHeader() },
+      );
+      if (!response.ok) return;
+
+      const data = (await response.json()) as AnnotationsResponse;
+      // Ignore stale responses if the user already navigated to another video.
+      if (this.videoUuid !== uuid) return;
+
+      this.canEdit = data.canEdit === true;
+      this.projectReference = data.projectReference ?? "";
+      this.projectTitle = data.project?.title ?? "";
+      this.annotations = Array.isArray(data.annotations)
+        ? data.annotations.slice().sort((a, b) => a.startTime - b.startTime)
+        : [];
+
+      this.maybeInit();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[celluloid] failed to load annotations", err);
+    }
+  }
+
   private maybeInit(): void {
     if (this.initialized) return;
-    if (!this.player || this.annotations.length === 0) return;
+    if (!this.player) return;
+    // Render if there is something to show or the user can manage the link.
+    if (this.annotations.length === 0 && !this.canEdit) return;
+
     this.initialized = true;
-    this.buildOverlay();
+    if (this.annotations.length > 0) {
+      this.buildOverlay();
+      this.buildMarkers();
+    }
     this.buildPanel();
-    this.buildMarkers();
     this.player.on("timeupdate", this.onTimeUpdate);
     this.renderActive();
   }
@@ -111,11 +122,47 @@ class CelluloidWatch {
 
     const header = document.createElement("div");
     header.className = "celluloid-panel__header";
-    header.textContent = this.projectTitle
+
+    const title = document.createElement("span");
+    title.className = "celluloid-panel__title";
+    title.textContent = this.projectTitle
       ? `Celluloid — ${this.projectTitle} (${this.annotations.length})`
-      : `Celluloid annotations (${this.annotations.length})`;
+      : this.annotations.length > 0
+        ? `Celluloid annotations (${this.annotations.length})`
+        : "Celluloid";
+    header.appendChild(title);
+
+    if (this.canEdit) {
+      const editButton = document.createElement("button");
+      editButton.type = "button";
+      editButton.className = "celluloid-edit-btn";
+      editButton.textContent = this.projectReference
+        ? "Edit link"
+        : "Link a project";
+      editButton.addEventListener("click", () => this.toggleEditor(panel));
+      header.appendChild(editButton);
+    }
+
     panel.appendChild(header);
 
+    if (this.canEdit && this.annotations.length === 0) {
+      const hint = document.createElement("div");
+      hint.className = "celluloid-hint";
+      hint.textContent = this.projectReference
+        ? "This project has no annotations yet."
+        : "No Celluloid project linked to this video yet.";
+      panel.appendChild(hint);
+    }
+
+    if (this.annotations.length > 0) {
+      panel.appendChild(this.buildList());
+    }
+
+    container.appendChild(panel);
+    this.panel = panel;
+  }
+
+  private buildList(): HTMLElement {
     const list = document.createElement("ul");
     list.className = "celluloid-panel__list";
 
@@ -127,9 +174,7 @@ class CelluloidWatch {
       const time = document.createElement("span");
       time.className = "celluloid-item__time";
       time.textContent = formatTime(annotation.startTime);
-      if (annotation.user?.color) {
-        time.style.borderColor = annotation.user.color;
-      }
+      if (annotation.user?.color) time.style.borderColor = annotation.user.color;
 
       const body = document.createElement("span");
       body.className = "celluloid-item__body";
@@ -144,9 +189,113 @@ class CelluloidWatch {
       this.listItems.set(annotation.id, item);
     }
 
-    panel.appendChild(list);
-    container.appendChild(panel);
-    this.panel = panel;
+    return list;
+  }
+
+  private toggleEditor(panel: HTMLElement): void {
+    const existing = panel.querySelector(".celluloid-editor");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+
+    const editor = document.createElement("div");
+    editor.className = "celluloid-editor";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "celluloid-editor__input";
+    input.placeholder = "Celluloid project id or URL";
+    input.value = this.projectReference;
+
+    const actions = document.createElement("div");
+    actions.className = "celluloid-editor__actions";
+
+    const save = document.createElement("button");
+    save.type = "button";
+    save.className = "celluloid-editor__save";
+    save.textContent = "Save";
+    save.addEventListener("click", () => this.saveLink(input.value, editor));
+
+    actions.appendChild(save);
+
+    if (this.projectReference) {
+      const unlink = document.createElement("button");
+      unlink.type = "button";
+      unlink.className = "celluloid-editor__unlink";
+      unlink.textContent = "Unlink";
+      unlink.addEventListener("click", () => this.saveLink("", editor));
+      actions.appendChild(unlink);
+    }
+
+    editor.appendChild(input);
+    editor.appendChild(actions);
+
+    const message = document.createElement("div");
+    message.className = "celluloid-editor__message";
+    editor.appendChild(message);
+
+    const header = panel.querySelector(".celluloid-panel__header");
+    header?.after(editor);
+    input.focus();
+  }
+
+  private async saveLink(value: string, editor: HTMLElement): Promise<void> {
+    const message = editor.querySelector(
+      ".celluloid-editor__message",
+    ) as HTMLElement | null;
+    const buttons = editor.querySelectorAll("button");
+    const setDisabled = (disabled: boolean) => {
+      buttons.forEach((b) => {
+        b.disabled = disabled;
+      });
+    };
+    setDisabled(true);
+    if (message) message.textContent = "Saving…";
+
+    try {
+      const uuid = this.videoUuid;
+      if (!uuid) return;
+
+      const response = await fetch(
+        `${this.helpers.getBaseRouterRoute()}/videos/${uuid}/project`,
+        {
+          method: "POST",
+          headers: {
+            ...this.helpers.getAuthHeader(),
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ project: value }),
+        },
+      );
+
+      if (!response.ok) {
+        if (message) {
+          message.textContent =
+            response.status === 403
+              ? "You are not allowed to edit this video."
+              : "Failed to save the link.";
+        }
+        setDisabled(false);
+        return;
+      }
+
+      // Rebuild everything from the fresh state.
+      this.refresh();
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[celluloid] failed to save link", err);
+      if (message) message.textContent = "Failed to save the link.";
+      setDisabled(false);
+    }
+  }
+
+  /** Tears down the rendered UI but keeps the player, then reloads data. */
+  private refresh(): void {
+    const uuid = this.videoUuid;
+    this.teardownUi();
+    this.initialized = false;
+    if (uuid) void this.load(uuid);
   }
 
   private buildMarkers(): void {
@@ -194,9 +343,7 @@ class CelluloidWatch {
     for (const annotation of active) {
       const bubble = document.createElement("div");
       bubble.className = "celluloid-bubble";
-      if (annotation.user?.color) {
-        bubble.style.borderColor = annotation.user.color;
-      }
+      if (annotation.user?.color) bubble.style.borderColor = annotation.user.color;
       const author = annotation.user?.username;
       bubble.textContent = author
         ? `${author}: ${annotation.text}`
@@ -212,23 +359,26 @@ class CelluloidWatch {
 
   private seek(time: number): void {
     if (!this.player) return;
-    (this.player as unknown as { currentTime: (t: number) => void }).currentTime(
-      Math.max(0, time),
-    );
+    this.player.currentTime(Math.max(0, time));
   }
 
-  private cleanup(): void {
+  private teardownUi(): void {
     if (this.player) this.player.off("timeupdate", this.onTimeUpdate);
     this.overlay?.remove();
     this.panel?.remove();
     for (const marker of this.markers) marker.remove();
-
     this.overlay = null;
     this.panel = null;
     this.markers = [];
     this.listItems.clear();
+  }
+
+  private cleanup(): void {
+    this.teardownUi();
     this.annotations = [];
     this.projectTitle = "";
+    this.projectReference = "";
+    this.canEdit = false;
     this.initialized = false;
   }
 }
