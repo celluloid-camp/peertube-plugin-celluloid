@@ -1,6 +1,6 @@
 {
   "name": "peertube-plugin-celluloid",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Link a PeerTube video to a Celluloid (celluloid.me) project and display its annotations over the player.",
   "engine": {
     "peertube": ">=6.0.0"
