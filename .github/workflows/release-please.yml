@@ -12,17 +12,18 @@ permissions:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    # Pin the image so ubuntu-latest → 26 (Oct 2026) does not surprise us.
+    runs-on: ubuntu-24.04
     steps:
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         id: release
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: ${{ steps.release.outputs.release_created }}
 
       # Node 24 ships npm >= 11.5.1 required for OIDC trusted publishing.
       # Do not set NODE_AUTH_TOKEN — an empty value blocks OIDC fallback.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         if: ${{ steps.release.outputs.release_created }}
         with:
           node-version: "24"
