@@ -23,3 +23,17 @@ In **Administration → Plugins → peertube-plugin-celluloid → Settings**, se
 npm install      # also builds dist/
 npm run build    # bundle server + client scripts
 ```
+
+## Releases
+
+Releases are automated with [Release Please](https://github.com/googleapis/release-please) on `main`.
+
+1. Merge PRs using [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, …).
+2. Release Please opens/updates a release PR that bumps `package.json`, updates `CHANGELOG.md`, and prepares the next version.
+3. Merging that release PR creates a GitHub tag/release and publishes to npm via [Trusted Publishing (OIDC)](https://docs.npmjs.com/trusted-publishers/) — no npm token secret.
+
+On npmjs.com → package **Settings → Trusted Publisher**, configure:
+
+- **Organization or user:** `celluloid-camp`
+- **Repository:** `peertube-plugin-celluloid`
+- **Workflow filename:** `release-please.yml` (filename only, with extension)

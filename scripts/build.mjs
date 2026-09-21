@@ -20,6 +20,7 @@ await esbuild.build({
 // Client scripts: loaded by PeerTube as ES modules.
 const clientEntries = {
   "dist/client/video-watch-client-plugin.js": "src/client/video-watch.ts",
+  "dist/client/video-edit-client-plugin.js": "src/client/video-edit.ts",
 };
 
 for (const [outfile, entry] of Object.entries(clientEntries)) {

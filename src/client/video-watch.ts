@@ -1,5 +1,6 @@
 import type { RegisterClientOptions } from "@peertube/peertube-types/client";
-import type { CelluloidAnnotation } from "../celluloid";
+import type { CelluloidAnnotation, CelluloidProject } from "../celluloid";
+import { extractProjectId, normalizeCelluloidUrl } from "../celluloid";
 
 interface AnnotationsResponse {
   linked: boolean;
@@ -7,7 +8,7 @@ interface AnnotationsResponse {
   projectReference?: string;
   celluloidUrl?: string;
   projectId?: string;
-  project?: { title?: string } | null;
+  project?: CelluloidProject | null;
   annotations?: CelluloidAnnotation[];
 }
 
@@ -25,9 +26,57 @@ function formatTime(seconds: number): string {
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const sec = s % 60;
-  const mm = h > 0 ? String(m).padStart(2, "0") : String(m);
+  const mm = String(m).padStart(2, "0");
   const ss = String(sec).padStart(2, "0");
   return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+}
+
+function formatRelative(iso: string | null): string {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const diffSec = Math.round((then - Date.now()) / 1000);
+  const abs = Math.abs(diffSec);
+  const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  if (abs < 60) return rtf.format(diffSec, "second");
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), "minute");
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), "hour");
+  if (abs < 86400 * 30) return rtf.format(Math.round(diffSec / 86400), "day");
+  if (abs < 86400 * 365) return rtf.format(Math.round(diffSec / 2592000), "month");
+  return rtf.format(Math.round(diffSec / 31536000), "year");
+}
+
+function userInitials(user: {
+  initial: string | null;
+  username: string;
+}): string {
+  if (user.initial?.trim()) return user.initial.trim().slice(0, 2).toUpperCase();
+  const parts = user.username.trim().split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return user.username.slice(0, 2).toUpperCase() || "?";
+}
+
+function buildAvatar(user: {
+  initial: string | null;
+  username: string;
+  color: string | null;
+  image: string | null;
+} | null | undefined): HTMLElement {
+  const avatar = document.createElement("div");
+  avatar.className = "celluloid-avatar";
+  avatar.setAttribute("aria-hidden", "true");
+  if (user?.color) avatar.style.backgroundColor = user.color;
+  if (user?.image) {
+    const img = document.createElement("img");
+    img.src = user.image;
+    img.alt = "";
+    avatar.appendChild(img);
+  } else {
+    avatar.textContent = user ? userInitials(user) : "?";
+  }
+  return avatar;
 }
 
 class CelluloidWatch {
@@ -36,6 +85,9 @@ class CelluloidWatch {
   private player: Player | null = null;
   private annotations: CelluloidAnnotation[] = [];
   private projectReference = "";
+  private projectId = "";
+  private celluloidUrl = "https://celluloid.me";
+  private project: CelluloidProject | null = null;
   private canEdit = false;
   private videoUuid: string | null = null;
   private initialized = false;
@@ -90,6 +142,9 @@ class CelluloidWatch {
 
       this.canEdit = data.canEdit === true;
       this.projectReference = data.projectReference ?? "";
+      this.projectId = data.projectId ?? "";
+      this.celluloidUrl = normalizeCelluloidUrl(data.celluloidUrl);
+      this.project = data.project ?? null;
       this.annotations = Array.isArray(data.annotations)
         ? data.annotations.slice().sort((a, b) => a.startTime - b.startTime)
         : [];
@@ -135,12 +190,13 @@ class CelluloidWatch {
 
       const icon = document.createElement("span");
       icon.className = "celluloid-toolbar-btn__icon";
-      icon.innerHTML =
-        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" ' +
-        'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
-        'stroke-linejoin="round" aria-hidden="true">' +
-        '<rect x="2" y="3" width="20" height="18" rx="2"/>' +
-        '<path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5"/></svg>';
+      const logo = document.createElement("img");
+      logo.className = "celluloid-toolbar-btn__logo";
+      logo.src = `${this.helpers.getBaseStaticRoute()}/images/logo.svg`;
+      logo.alt = "";
+      logo.width = 30;
+      logo.height = 14;
+      icon.appendChild(logo);
 
       const label = document.createElement("span");
       label.className = "celluloid-toolbar-btn__label";
@@ -231,25 +287,61 @@ class CelluloidWatch {
       item.className = "celluloid-item";
       item.addEventListener("click", () => this.seek(annotation.startTime));
 
-      const time = document.createElement("span");
-      time.className = "celluloid-item__time";
-      time.textContent = formatTime(annotation.startTime);
-      if (annotation.user?.color) time.style.borderColor = annotation.user.color;
+      const avatar = buildAvatar(annotation.user);
 
-      const body = document.createElement("span");
-      body.className = "celluloid-item__body";
-      const author = annotation.user?.username;
-      body.textContent = author
-        ? `${author}: ${annotation.text}`
-        : annotation.text;
+      const main = document.createElement("div");
+      main.className = "celluloid-item__main";
 
-      item.appendChild(time);
-      item.appendChild(body);
+      const header = document.createElement("div");
+      header.className = "celluloid-item__header";
+
+      const meta = document.createElement("div");
+      meta.className = "celluloid-item__meta";
+
+      const author = document.createElement("span");
+      author.className = "celluloid-item__author";
+      author.textContent = annotation.user?.username || "Anonymous";
+      meta.appendChild(author);
+
+      const relative = formatRelative(annotation.createdAt);
+      if (relative) {
+        const ago = document.createElement("span");
+        ago.className = "celluloid-item__ago";
+        ago.textContent = `— ${relative}`;
+        meta.appendChild(ago);
+      }
+
+      const aside = document.createElement("div");
+      aside.className = "celluloid-item__aside";
+
+      const range = document.createElement("span");
+      range.className = "celluloid-item__range";
+      range.textContent = `${formatTime(annotation.startTime)} → ${formatTime(annotation.stopTime)}`;
+      aside.appendChild(range);
+
+      header.appendChild(meta);
+      header.appendChild(aside);
+
+      const text = document.createElement("p");
+      text.className = "celluloid-item__text";
+      text.textContent = annotation.text;
+
+      main.appendChild(header);
+      main.appendChild(text);
+
+      item.appendChild(avatar);
+      item.appendChild(main);
       list.appendChild(item);
       this.listItems.set(annotation.id, item);
     }
 
     return list;
+  }
+
+  private projectUrl(reference = this.projectReference): string | null {
+    const id = extractProjectId(reference);
+    if (!id) return null;
+    return `${this.celluloidUrl}/project/${id}`;
   }
 
   private openLinkModal(): void {
@@ -284,6 +376,7 @@ class CelluloidWatch {
 
     const body = document.createElement("div");
     body.className = "celluloid-modal__body";
+
     const input = document.createElement("input");
     input.type = "text";
     input.className = "celluloid-editor__input";
@@ -292,10 +385,75 @@ class CelluloidWatch {
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.saveLink(input.value, dialog);
     });
+    body.appendChild(input);
+
+    const info = document.createElement("div");
+    info.className = "celluloid-project-info";
+    body.appendChild(info);
+
+    const open = document.createElement("a");
+    open.className = "celluloid-project-info__open";
+    open.target = "_blank";
+    open.rel = "noopener noreferrer";
+    open.textContent = "Open in Celluloid";
+
     const message = document.createElement("div");
     message.className = "celluloid-editor__message";
-    body.appendChild(input);
     body.appendChild(message);
+
+    const refreshProjectUi = (): void => {
+      const value = input.value.trim();
+      const url = this.projectUrl(value);
+      const showInfo = Boolean(value);
+
+      info.replaceChildren();
+      info.hidden = !showInfo;
+      if (!showInfo) {
+        open.remove();
+        return;
+      }
+
+      const title = document.createElement("div");
+      title.className = "celluloid-project-info__title";
+      const known =
+        this.project &&
+        extractProjectId(value) === (this.projectId || this.project.id);
+      title.textContent = known
+        ? this.project?.title || "Linked Celluloid project"
+        : "Celluloid project";
+      info.appendChild(title);
+
+      const meta = document.createElement("div");
+      meta.className = "celluloid-project-info__meta";
+      const bits: string[] = [];
+      if (known && this.project?.duration != null) {
+        bits.push(formatTime(this.project.duration));
+      }
+      if (known) {
+        bits.push(
+          `${this.annotations.length} annotation${this.annotations.length === 1 ? "" : "s"}`,
+        );
+      }
+      const id = extractProjectId(value);
+      if (id) bits.push(id);
+      meta.textContent = bits.join(" · ");
+      info.appendChild(meta);
+
+      if (known && this.project?.description?.trim()) {
+        const desc = document.createElement("p");
+        desc.className = "celluloid-project-info__description";
+        desc.textContent = this.project.description.trim();
+        info.appendChild(desc);
+      }
+
+      if (url) {
+        open.href = url;
+        info.appendChild(open);
+      }
+    };
+
+    input.addEventListener("input", refreshProjectUi);
+    refreshProjectUi();
 
     const footer = document.createElement("div");
     footer.className = "celluloid-modal__footer";
@@ -333,6 +491,7 @@ class CelluloidWatch {
     this.modal = modal;
     document.addEventListener("keydown", this.onModalKeydown);
     input.focus();
+    input.select();
   }
 
   private readonly onModalKeydown = (e: KeyboardEvent) => {
@@ -483,11 +642,24 @@ class CelluloidWatch {
       if (this.overlayBubbles.has(annotation.id)) continue;
       const bubble = document.createElement("div");
       bubble.className = "celluloid-bubble";
-      if (annotation.user?.color) bubble.style.borderColor = annotation.user.color;
-      const author = annotation.user?.username;
-      bubble.textContent = author
-        ? `${author}: ${annotation.text}`
-        : annotation.text;
+
+      bubble.appendChild(buildAvatar(annotation.user));
+
+      const main = document.createElement("div");
+      main.className = "celluloid-bubble__main";
+
+      const range = document.createElement("span");
+      range.className = "celluloid-bubble__range";
+      range.textContent = `${formatTime(annotation.startTime)} → ${formatTime(annotation.stopTime)}`;
+      main.appendChild(range);
+
+      const text = document.createElement("span");
+      text.className = "celluloid-bubble__text";
+      text.textContent = annotation.text;
+      main.appendChild(text);
+
+      bubble.appendChild(main);
+
       this.overlay.appendChild(bubble);
       this.overlayBubbles.set(annotation.id, bubble);
       window.requestAnimationFrame(() => {
@@ -536,6 +708,8 @@ class CelluloidWatch {
     this.toolbarButton = null;
     this.annotations = [];
     this.projectReference = "";
+    this.projectId = "";
+    this.project = null;
     this.canEdit = false;
     this.initialized = false;
   }

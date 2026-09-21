@@ -1,6 +1,6 @@
 {
   "name": "peertube-plugin-celluloid",
-  "version": "0.1.16",
+  "version": "0.1.28",
   "description": "Link a PeerTube video to a Celluloid (celluloid.me) project and display its annotations over the player.",
   "engine": {
     "peertube": ">=6.0.0"
@@ -12,6 +12,10 @@
     "annotations"
   ],
   "homepage": "https://celluloid.me",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/celluloid-camp/peertube-plugin-celluloid.git"
+  },
   "author": "Celluloid",
   "bugs": "https://github.com/celluloid-camp/peertube-plugin-celluloid/issues",
   "license": "MIT",
@@ -20,7 +24,9 @@
     "dist",
     "assets"
   ],
-  "staticDirs": {},
+  "staticDirs": {
+    "images": "assets"
+  },
   "css": [
     "./assets/style.css"
   ],
@@ -29,6 +35,12 @@
       "script": "dist/client/video-watch-client-plugin.js",
       "scopes": [
         "video-watch"
+      ]
+    },
+    {
+      "script": "dist/client/video-edit-client-plugin.js",
+      "scopes": [
+        "video-edit"
       ]
     }
   ],

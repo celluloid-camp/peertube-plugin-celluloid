@@ -1,4 +1,10 @@
-/* Overlay shown on top of the video player (top, full width). */
+/* Manage-form Celluloid project field — PeerTube caps dynamic inputs at 340px. */
+my-dynamic-form-field input#celluloid-project {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box;
+}
+
 .celluloid-overlay {
   position: absolute;
   top: 0;
@@ -6,8 +12,8 @@
   right: 0;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 8px;
   padding: 12px;
   pointer-events: none;
   z-index: 20;
@@ -15,16 +21,17 @@
 
 .celluloid-bubble {
   box-sizing: border-box;
-  width: 100%;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border-left: 4px solid #ff8c00;
-  background: rgba(0, 0, 0, 0.72);
-  color: #fff;
-  font-size: 14px;
-  line-height: 1.4;
-  text-align: left;
-  backdrop-filter: blur(2px);
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: min(560px, 100%);
+  padding: 8px 12px;
+  border: 1px solid var(--border-secondary, var(--bg-secondary-400));
+  border-radius: var(--input-border-radius, 10px);
+  background: color-mix(in srgb, var(--bg-secondary-450, var(--bg-secondary)) 92%, transparent);
+  color: var(--fg);
+  backdrop-filter: blur(6px);
   opacity: 0;
   transform: translateY(-8px);
   transition: opacity 0.25s ease, transform 0.25s ease;
@@ -35,32 +42,89 @@
   transform: translateY(0);
 }
 
-/* Markers on the progress bar — layered so they never expand layout. */
-.celluloid-markers-layer {
-  position: absolute;
-  inset: 0;
+.celluloid-bubble__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.celluloid-bubble__range {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--fg-400, var(--fg-350, var(--fg)));
+}
+
+.celluloid-bubble__text {
+  font-size: 14px;
+  line-height: 1.35;
+  word-break: break-word;
+  color: var(--fg);
+}
+
+.celluloid-avatar {
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  user-select: none;
+}
+
+.celluloid-avatar img {
   width: 100%;
   height: 100%;
-  overflow: hidden;
+  object-fit: cover;
+  display: block;
+}
+
+/* Markers on the progress bar — overflow visible so dots aren't clipped. */
+.vjs-progress-control:has(.celluloid-markers-layer),
+.vjs-progress-holder:has(.celluloid-markers-layer) {
+  overflow: visible !important;
+}
+
+.celluloid-markers-layer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  width: 100%;
+  height: 0;
+  overflow: visible;
   pointer-events: none;
   z-index: 5;
 }
 
 .celluloid-marker {
   position: absolute;
-  top: 50%;
-  width: 8px;
-  height: 8px;
+  top: 0;
+  width: 10px;
+  height: 10px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  background: #ff8c00;
+  background: var(--primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg) 55%, transparent);
   cursor: pointer;
   pointer-events: auto;
   transition: transform 0.1s ease;
 }
 
 .celluloid-marker:hover {
-  transform: translate(-50%, -50%) scale(1.5);
+  transform: translate(-50%, -50%) scale(1.35);
+  z-index: 6;
 }
 
 /* Side-by-side: player + annotations panel. */
@@ -85,11 +149,11 @@
   flex: 0 0 360px;
   width: 360px;
   max-width: 100%;
-  border: 1px solid var(--greyBackgroundColor, #e5e5e5);
-  border-radius: 8px;
+  border: 1px solid var(--border-secondary, var(--bg-secondary-400));
+  border-radius: var(--input-border-radius, 8px);
   overflow: hidden;
-  background: var(--mainBackgroundColor, #fff);
-  color: var(--mainForegroundColor, #000);
+  background: var(--bg);
+  color: var(--fg);
 }
 
 @media (max-width: 1100px) {
@@ -107,7 +171,8 @@
   gap: 10px;
   padding: 10px 14px;
   font-weight: 600;
-  background: var(--greyBackgroundColor, #f5f5f5);
+  background: var(--bg-secondary-450, var(--bg-secondary));
+  color: var(--fg);
 }
 
 .celluloid-panel__title {
@@ -119,28 +184,29 @@
 .celluloid-editor__save,
 .celluloid-editor__unlink {
   padding: 4px 10px;
-  border: 1px solid #ff8c00;
-  border-radius: 4px;
+  border: 1px solid var(--border-primary, var(--primary));
+  border-radius: var(--input-border-radius, 4px);
   background: transparent;
-  color: inherit;
+  color: var(--primary);
   font-size: 13px;
   cursor: pointer;
 }
 
 .celluloid-edit-btn:hover,
 .celluloid-editor__save {
-  background: #ff8c00;
-  color: #fff;
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--border-primary, var(--primary));
 }
 
 .celluloid-editor__unlink {
-  border-color: #d33;
-  color: #d33;
+  border-color: var(--red);
+  color: var(--red);
 }
 
 .celluloid-editor__unlink:hover {
-  background: #d33;
-  color: #fff;
+  background: var(--red);
+  color: var(--on-primary, #fff);
 }
 
 .celluloid-edit-btn:disabled,
@@ -156,18 +222,25 @@
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
-  border-top: 1px solid var(--greyBackgroundColor, #eee);
+  border-top: 1px solid var(--bg-secondary-400, var(--border-secondary));
 }
 
 .celluloid-editor__input {
-  flex: 1 1 220px;
-  min-width: 180px;
-  padding: 6px 10px;
-  border: 1px solid var(--inputBorderColor, #ccc);
-  border-radius: 4px;
-  background: var(--inputBackgroundColor, #fff);
-  color: var(--mainForegroundColor, #000);
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: var(--input-y-padding, 6px) var(--input-x-padding, 10px);
+  border: var(--input-border-width, 1px) solid var(--input-border-color);
+  border-radius: var(--input-border-radius, 4px);
+  background: var(--input-bg);
+  color: var(--input-fg, var(--fg));
   font-size: 14px;
+  line-height: 1.4;
+}
+
+.celluloid-editor__input::placeholder {
+  color: var(--input-placeholder-color);
 }
 
 .celluloid-editor__actions {
@@ -178,13 +251,13 @@
 .celluloid-editor__message {
   flex: 1 1 100%;
   font-size: 12px;
-  opacity: 0.8;
+  color: var(--fg-400, var(--fg));
 }
 
 .celluloid-hint {
   padding: 10px 14px;
   font-size: 13px;
-  opacity: 0.75;
+  color: var(--fg-400, var(--fg));
 }
 
 /* Button injected into the video action bar (near Share / Save). */
@@ -196,11 +269,13 @@
 
 .celluloid-toolbar-btn__icon {
   display: inline-flex;
-  color: #ff8c00;
+  align-items: center;
 }
 
-.celluloid-toolbar-btn__icon svg {
+.celluloid-toolbar-btn__logo {
   display: block;
+  height: 14px;
+  width: auto;
 }
 
 .celluloid-toolbar-btn__label {
@@ -228,10 +303,11 @@
   position: relative;
   width: 100%;
   max-width: 480px;
-  border-radius: 8px;
-  background: var(--mainBackgroundColor, #fff);
-  color: var(--mainForegroundColor, #000);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  border-radius: var(--input-border-radius, 8px);
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border-secondary, var(--bg-secondary-400));
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--fg) 25%, transparent);
   overflow: hidden;
 }
 
@@ -242,7 +318,7 @@
   gap: 10px;
   padding: 14px 16px;
   font-weight: 600;
-  background: var(--greyBackgroundColor, #f5f5f5);
+  background: var(--bg-secondary-450, var(--bg-secondary));
 }
 
 .celluloid-modal__close {
@@ -260,6 +336,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 16px;
+  background: var(--input-bg-in-modal, var(--bg));
 }
 
 .celluloid-modal__footer {
@@ -267,61 +344,200 @@
   justify-content: flex-end;
   gap: 8px;
   padding: 12px 16px;
-  border-top: 1px solid var(--greyBackgroundColor, #eee);
+  border-top: 1px solid var(--bg-secondary-400, var(--border-secondary));
 }
 
 .celluloid-modal__cancel {
   padding: 4px 10px;
-  border: 1px solid var(--inputBorderColor, #ccc);
-  border-radius: 4px;
+  border: 1px solid var(--input-border-color);
+  border-radius: var(--input-border-radius, 4px);
   background: transparent;
-  color: inherit;
+  color: var(--fg);
   font-size: 13px;
   cursor: pointer;
 }
 
+.celluloid-modal__cancel:hover {
+  background: var(--bg-secondary-450, var(--bg-secondary));
+}
+
 .celluloid-modal__body .celluloid-editor__input {
   width: 100%;
+  flex: 0 0 auto;
+  align-self: stretch;
+  background: var(--input-bg-in-modal, var(--input-bg));
+}
+
+.celluloid-project-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-secondary, var(--bg-secondary-400));
+  border-radius: var(--input-border-radius, 8px);
+  background: var(--bg-secondary-450, var(--bg-secondary));
+}
+
+.celluloid-project-info[hidden] {
+  display: none;
+}
+
+.celluloid-project-info__title {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--fg);
+  word-break: break-word;
+}
+
+.celluloid-project-info__meta {
+  font-size: 12px;
+  color: var(--fg-400, var(--fg-350, var(--fg)));
+  word-break: break-all;
+}
+
+.celluloid-project-info__description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--fg-400, var(--fg-350, var(--fg)));
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.celluloid-project-info__open {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border-primary, var(--primary));
+  border-radius: var(--input-border-radius, 4px);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.celluloid-project-info__open:hover {
+  filter: brightness(1.05);
 }
 
 .celluloid-panel__list {
   list-style: none;
   margin: 0;
-  padding: 0;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   flex: 1 1 auto;
   min-height: 0;
   max-height: 100%;
   overflow-y: auto;
+  background: var(--bg);
 }
 
 .celluloid-item {
   display: flex;
   gap: 10px;
   align-items: flex-start;
-  padding: 8px 14px;
+  padding: 12px;
   cursor: pointer;
-  border-top: 1px solid var(--greyBackgroundColor, #eee);
+  border: 1px solid var(--border-secondary, var(--bg-secondary-400));
+  border-radius: var(--input-border-radius, 10px);
+  background: var(--bg-secondary-450, var(--bg-secondary));
+  color: var(--fg);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.celluloid-item:hover,
+.celluloid-item:hover {
+  border-color: var(--bg-secondary-300, var(--fg-200));
+  background: color-mix(
+    in srgb,
+    var(--fg) 6%,
+    var(--bg-secondary-450, var(--bg-secondary))
+  );
+}
+
 .celluloid-item--active {
-  background: rgba(255, 140, 0, 0.12);
+  border-color: var(--border-primary, var(--primary));
+  background: color-mix(
+    in srgb,
+    var(--primary) 10%,
+    var(--bg-secondary-450, var(--bg-secondary))
+  );
 }
 
-.celluloid-item__time {
-  flex: 0 0 auto;
-  min-width: 48px;
-  padding: 2px 6px;
-  border: 1px solid #ff8c00;
-  border-radius: 4px;
-  font-variant-numeric: tabular-nums;
+.celluloid-item--active:hover {
+  border-color: var(--border-primary, var(--primary));
+  background: color-mix(
+    in srgb,
+    var(--primary) 14%,
+    var(--bg-secondary-450, var(--bg-secondary))
+  );
+}
+
+.celluloid-item .celluloid-avatar {
+  width: 36px;
+  height: 36px;
   font-size: 12px;
-  text-align: center;
 }
 
-.celluloid-item__body {
+.celluloid-item__main {
   flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.celluloid-item__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.celluloid-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  min-width: 0;
+}
+
+.celluloid-item__author {
+  font-weight: 600;
   font-size: 14px;
-  line-height: 1.4;
+  color: var(--fg);
   word-break: break-word;
+}
+
+.celluloid-item__ago {
+  font-size: 12px;
+  color: var(--fg-400, var(--fg-350, var(--fg)));
+}
+
+.celluloid-item__aside {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+}
+
+.celluloid-item__range {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--fg-400, var(--fg-350, var(--fg)));
+}
+
+.celluloid-item__text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  word-break: break-word;
+  color: var(--fg-400, var(--fg-350, var(--fg)));
 }
