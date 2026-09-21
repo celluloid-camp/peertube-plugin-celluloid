@@ -4,16 +4,11 @@ import {
   fetchProjectAnnotations,
   normalizeCelluloidUrl,
 } from "./celluloid";
-import {
-  FIELD_CELLULOID_PROJECT,
-  SETTING_CELLULOID_URL,
-  projectStorageKey,
-} from "./constants";
+import { SETTING_CELLULOID_URL, projectStorageKey } from "./constants";
 
 const DEFAULT_CELLULOID_URL = "https://celluloid.me";
 
 export async function register({
-  registerHook,
   registerSetting,
   settingsManager,
   storageManager,
@@ -31,47 +26,6 @@ export async function register({
     private: false,
     descriptionHTML:
       "Base URL of the Celluloid instance exposing the API, e.g. <code>https://celluloid.me</code>.",
-  });
-
-  // Persist the linked project when a video is created or updated.
-  const storeProjectFromRequest = async (params: {
-    video: { uuid: string };
-    req?: { body?: { pluginData?: Record<string, unknown> } };
-  }) => {
-    const { video, req } = params;
-    const pluginData = req?.body?.pluginData;
-    if (!video?.uuid || !pluginData) return;
-    if (!(FIELD_CELLULOID_PROJECT in pluginData)) return;
-
-    const value = pluginData[FIELD_CELLULOID_PROJECT];
-    const key = projectStorageKey(video.uuid);
-    if (value === undefined || value === null || value === "") {
-      await storageManager.storeData(key, null);
-      return;
-    }
-    await storageManager.storeData(key, String(value));
-  };
-
-  for (const target of [
-    "action:api.video.updated",
-    "action:api.video.uploaded",
-  ] as const) {
-    registerHook({ target, handler: storeProjectFromRequest });
-  }
-
-  // Autofill the edit form field with the stored value.
-  registerHook({
-    target: "filter:api.video.get.result",
-    handler: async (video: {
-      uuid?: string;
-      pluginData?: Record<string, unknown>;
-    }) => {
-      if (!video?.uuid) return video;
-      if (!video.pluginData) video.pluginData = {};
-      video.pluginData[FIELD_CELLULOID_PROJECT] =
-        (await storageManager.getData(projectStorageKey(video.uuid))) ?? "";
-      return video;
-    },
   });
 
   const getCelluloidUrl = async (): Promise<string> =>

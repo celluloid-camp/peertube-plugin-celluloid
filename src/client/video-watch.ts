@@ -35,17 +35,31 @@ class CelluloidWatch {
 
   private player: Player | null = null;
   private annotations: CelluloidAnnotation[] = [];
-  private projectTitle = "";
   private projectReference = "";
   private canEdit = false;
   private videoUuid: string | null = null;
   private initialized = false;
 
   private overlay: HTMLElement | null = null;
+  private overlayBubbles = new Map<string, HTMLElement>();
   private panel: HTMLElement | null = null;
+  private videoWrapper: HTMLElement | null = null;
+  private panelHeightObserver: ResizeObserver | null = null;
   private listItems = new Map<string, HTMLElement>();
   private markers: HTMLElement[] = [];
+  private toolbarButton: HTMLElement | null = null;
+  private toolbarTimer: number | null = null;
+  private modal: HTMLElement | null = null;
   private readonly onTimeUpdate = () => this.renderActive();
+  private readonly syncPanelHeight = (): void => {
+    if (!this.panel || !this.videoWrapper) return;
+    // Stacked layout on narrow screens — let CSS cap the height.
+    if (window.matchMedia("(max-width: 1100px)").matches) {
+      this.panel.style.height = "";
+      return;
+    }
+    this.panel.style.height = `${this.videoWrapper.getBoundingClientRect().height}px`;
+  };
 
   constructor(options: RegisterClientOptions) {
     this.helpers = options.peertubeHelpers;
@@ -76,12 +90,12 @@ class CelluloidWatch {
 
       this.canEdit = data.canEdit === true;
       this.projectReference = data.projectReference ?? "";
-      this.projectTitle = data.project?.title ?? "";
       this.annotations = Array.isArray(data.annotations)
         ? data.annotations.slice().sort((a, b) => a.startTime - b.startTime)
         : [];
 
       this.maybeInit();
+      if (this.canEdit) this.injectToolbarButton();
     } catch (err) {
       // eslint-disable-next-line no-console
       console.error("[celluloid] failed to load annotations", err);
@@ -91,17 +105,76 @@ class CelluloidWatch {
   private maybeInit(): void {
     if (this.initialized) return;
     if (!this.player) return;
-    // Render if there is something to show or the user can manage the link.
-    if (this.annotations.length === 0 && !this.canEdit) return;
+    // The panel/overlay only make sense when there are annotations to show.
+    // Linking is handled by the toolbar button + modal.
+    if (this.annotations.length === 0) return;
 
     this.initialized = true;
-    if (this.annotations.length > 0) {
-      this.buildOverlay();
-      this.buildMarkers();
-    }
+    this.buildOverlay();
+    this.buildMarkers();
     this.buildPanel();
     this.player.on("timeupdate", this.onTimeUpdate);
     this.renderActive();
+  }
+
+  // PeerTube has no official plugin slot in the Like/Share/Save action bar,
+  // so we inject a native-looking button into it. The bar renders
+  // asynchronously, hence the short retry loop.
+  private injectToolbarButton(): void {
+    const tryInject = (): boolean => {
+      if (this.toolbarButton && document.body.contains(this.toolbarButton)) {
+        return true;
+      }
+      const container = document.querySelector(".video-actions");
+      if (!container) return false;
+
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "action-button celluloid-toolbar-btn";
+      button.title = "Celluloid";
+
+      const icon = document.createElement("span");
+      icon.className = "celluloid-toolbar-btn__icon";
+      icon.innerHTML =
+        '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" ' +
+        'stroke="currentColor" stroke-width="2" stroke-linecap="round" ' +
+        'stroke-linejoin="round" aria-hidden="true">' +
+        '<rect x="2" y="3" width="20" height="18" rx="2"/>' +
+        '<path d="M7 3v18M17 3v18M2 8h5M2 16h5M17 8h5M17 16h5"/></svg>';
+
+      const label = document.createElement("span");
+      label.className = "celluloid-toolbar-btn__label";
+      label.textContent = "Celluloid";
+
+      button.appendChild(icon);
+      button.appendChild(label);
+      button.addEventListener("click", () => this.onToolbarClick());
+
+      // Place it just before the "3 dots" actions menu.
+      const dropdown = container.querySelector("my-video-actions-dropdown");
+      if (dropdown) container.insertBefore(button, dropdown);
+      else container.appendChild(button);
+
+      this.toolbarButton = button;
+      return true;
+    };
+
+    if (tryInject()) return;
+
+    let attempts = 0;
+    this.toolbarTimer = window.setInterval(() => {
+      attempts += 1;
+      if (tryInject() || attempts > 20) {
+        if (this.toolbarTimer !== null) {
+          clearInterval(this.toolbarTimer);
+          this.toolbarTimer = null;
+        }
+      }
+    }, 250);
+  }
+
+  private onToolbarClick(): void {
+    this.openLinkModal();
   }
 
   private buildOverlay(): void {
@@ -114,8 +187,14 @@ class CelluloidWatch {
 
   private buildPanel(): void {
     if (!this.player) return;
-    const container = this.player.el().parentElement;
-    if (!container) return;
+    // Sibling of #video-wrapper inside .player-margin-content so CSS can
+    // place the panel to the right of the player (below on narrow screens).
+    const wrapper = this.player.el().closest(
+      "#video-wrapper",
+    ) as HTMLElement | null;
+    const anchor = wrapper ?? this.player.el();
+    const parent = anchor.parentElement;
+    if (!parent) return;
 
     const panel = document.createElement("div");
     panel.className = "celluloid-panel";
@@ -125,41 +204,22 @@ class CelluloidWatch {
 
     const title = document.createElement("span");
     title.className = "celluloid-panel__title";
-    title.textContent = this.projectTitle
-      ? `Celluloid — ${this.projectTitle} (${this.annotations.length})`
-      : this.annotations.length > 0
-        ? `Celluloid annotations (${this.annotations.length})`
-        : "Celluloid";
+    title.textContent = `Celluloid annotations (${this.annotations.length})`;
     header.appendChild(title);
 
-    if (this.canEdit) {
-      const editButton = document.createElement("button");
-      editButton.type = "button";
-      editButton.className = "celluloid-edit-btn";
-      editButton.textContent = this.projectReference
-        ? "Edit link"
-        : "Link a project";
-      editButton.addEventListener("click", () => this.toggleEditor(panel));
-      header.appendChild(editButton);
-    }
-
     panel.appendChild(header);
+    panel.appendChild(this.buildList());
 
-    if (this.canEdit && this.annotations.length === 0) {
-      const hint = document.createElement("div");
-      hint.className = "celluloid-hint";
-      hint.textContent = this.projectReference
-        ? "This project has no annotations yet."
-        : "No Celluloid project linked to this video yet.";
-      panel.appendChild(hint);
-    }
-
-    if (this.annotations.length > 0) {
-      panel.appendChild(this.buildList());
-    }
-
-    container.appendChild(panel);
+    parent.insertBefore(panel, anchor.nextSibling);
     this.panel = panel;
+    this.videoWrapper = anchor;
+
+    // Keep the panel height locked to the player (theater / resize / etc.).
+    this.syncPanelHeight();
+    this.panelHeightObserver?.disconnect();
+    this.panelHeightObserver = new ResizeObserver(this.syncPanelHeight);
+    this.panelHeightObserver.observe(anchor);
+    window.addEventListener("resize", this.syncPanelHeight);
   }
 
   private buildList(): HTMLElement {
@@ -192,59 +252,104 @@ class CelluloidWatch {
     return list;
   }
 
-  private toggleEditor(panel: HTMLElement): void {
-    const existing = panel.querySelector(".celluloid-editor");
-    if (existing) {
-      existing.remove();
-      return;
-    }
+  private openLinkModal(): void {
+    if (this.modal) return;
 
-    const editor = document.createElement("div");
-    editor.className = "celluloid-editor";
+    const modal = document.createElement("div");
+    modal.className = "celluloid-modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
 
+    const backdrop = document.createElement("div");
+    backdrop.className = "celluloid-modal__backdrop";
+    backdrop.addEventListener("click", () => this.closeModal());
+
+    const dialog = document.createElement("div");
+    dialog.className = "celluloid-modal__dialog";
+
+    const header = document.createElement("div");
+    header.className = "celluloid-modal__header";
+    const heading = document.createElement("span");
+    heading.textContent = this.projectReference
+      ? "Edit the linked Celluloid project"
+      : "Link a Celluloid project";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "celluloid-modal__close";
+    close.setAttribute("aria-label", "Close");
+    close.innerHTML = "&times;";
+    close.addEventListener("click", () => this.closeModal());
+    header.appendChild(heading);
+    header.appendChild(close);
+
+    const body = document.createElement("div");
+    body.className = "celluloid-modal__body";
     const input = document.createElement("input");
     input.type = "text";
     input.className = "celluloid-editor__input";
     input.placeholder = "Celluloid project id or URL";
     input.value = this.projectReference;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") this.saveLink(input.value, dialog);
+    });
+    const message = document.createElement("div");
+    message.className = "celluloid-editor__message";
+    body.appendChild(input);
+    body.appendChild(message);
 
-    const actions = document.createElement("div");
-    actions.className = "celluloid-editor__actions";
+    const footer = document.createElement("div");
+    footer.className = "celluloid-modal__footer";
 
     const save = document.createElement("button");
     save.type = "button";
     save.className = "celluloid-editor__save";
     save.textContent = "Save";
-    save.addEventListener("click", () => this.saveLink(input.value, editor));
-
-    actions.appendChild(save);
+    save.addEventListener("click", () => this.saveLink(input.value, dialog));
+    footer.appendChild(save);
 
     if (this.projectReference) {
       const unlink = document.createElement("button");
       unlink.type = "button";
       unlink.className = "celluloid-editor__unlink";
       unlink.textContent = "Unlink";
-      unlink.addEventListener("click", () => this.saveLink("", editor));
-      actions.appendChild(unlink);
+      unlink.addEventListener("click", () => this.saveLink("", dialog));
+      footer.appendChild(unlink);
     }
 
-    editor.appendChild(input);
-    editor.appendChild(actions);
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "celluloid-modal__cancel";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", () => this.closeModal());
+    footer.appendChild(cancel);
 
-    const message = document.createElement("div");
-    message.className = "celluloid-editor__message";
-    editor.appendChild(message);
+    dialog.appendChild(header);
+    dialog.appendChild(body);
+    dialog.appendChild(footer);
+    modal.appendChild(backdrop);
+    modal.appendChild(dialog);
+    document.body.appendChild(modal);
 
-    const header = panel.querySelector(".celluloid-panel__header");
-    header?.after(editor);
+    this.modal = modal;
+    document.addEventListener("keydown", this.onModalKeydown);
     input.focus();
   }
 
-  private async saveLink(value: string, editor: HTMLElement): Promise<void> {
-    const message = editor.querySelector(
+  private readonly onModalKeydown = (e: KeyboardEvent) => {
+    if (e.key === "Escape") this.closeModal();
+  };
+
+  private closeModal(): void {
+    document.removeEventListener("keydown", this.onModalKeydown);
+    this.modal?.remove();
+    this.modal = null;
+  }
+
+  private async saveLink(value: string, dialog: HTMLElement): Promise<void> {
+    const message = dialog.querySelector(
       ".celluloid-editor__message",
     ) as HTMLElement | null;
-    const buttons = editor.querySelectorAll("button");
+    const buttons = dialog.querySelectorAll("button");
     const setDisabled = (disabled: boolean) => {
       buttons.forEach((b) => {
         b.disabled = disabled;
@@ -280,6 +385,7 @@ class CelluloidWatch {
         return;
       }
 
+      this.closeModal();
       // Rebuild everything from the fresh state.
       this.refresh();
     } catch (err) {
@@ -309,10 +415,32 @@ class CelluloidWatch {
         .querySelector(".vjs-progress-holder") as HTMLElement | null;
       if (!progress) return;
 
+      // Ensure the seekbar is the positioning context and never grows
+      // from marker overflow.
+      const progressStyle = getComputedStyle(progress);
+      if (progressStyle.position === "static") {
+        progress.style.position = "relative";
+      }
+
+      let layer = progress.querySelector(
+        ".celluloid-markers-layer",
+      ) as HTMLElement | null;
+      if (!layer) {
+        layer = document.createElement("div");
+        layer.className = "celluloid-markers-layer";
+        progress.appendChild(layer);
+      } else {
+        layer.replaceChildren();
+      }
+
       for (const annotation of this.annotations) {
         const marker = document.createElement("span");
         marker.className = "celluloid-marker";
-        marker.style.left = `${(annotation.startTime / duration) * 100}%`;
+        const pct = Math.min(
+          100,
+          Math.max(0, (annotation.startTime / duration) * 100),
+        );
+        marker.style.left = `${pct}%`;
         marker.title = annotation.text;
         if (annotation.user?.color) {
           marker.style.backgroundColor = annotation.user.color;
@@ -321,7 +449,7 @@ class CelluloidWatch {
           event.stopPropagation();
           this.seek(annotation.startTime);
         });
-        progress.appendChild(marker);
+        layer.appendChild(marker);
         this.markers.push(marker);
       }
       this.player.off("loadedmetadata", place);
@@ -338,9 +466,21 @@ class CelluloidWatch {
     const active = this.annotations.filter(
       (a) => t >= a.startTime && t <= a.stopTime,
     );
+    const activeIds = new Set(active.map((a) => a.id));
 
-    this.overlay.innerHTML = "";
+    // Remove bubbles that are no longer active, playing the exit animation.
+    for (const [id, bubble] of this.overlayBubbles) {
+      if (activeIds.has(id)) continue;
+      this.overlayBubbles.delete(id);
+      bubble.classList.remove("celluloid-bubble--visible");
+      const remove = () => bubble.remove();
+      bubble.addEventListener("transitionend", remove, { once: true });
+      window.setTimeout(remove, 400);
+    }
+
+    // Add newly active bubbles, playing the enter animation on next frame.
     for (const annotation of active) {
+      if (this.overlayBubbles.has(annotation.id)) continue;
       const bubble = document.createElement("div");
       bubble.className = "celluloid-bubble";
       if (annotation.user?.color) bubble.style.borderColor = annotation.user.color;
@@ -349,9 +489,12 @@ class CelluloidWatch {
         ? `${author}: ${annotation.text}`
         : annotation.text;
       this.overlay.appendChild(bubble);
+      this.overlayBubbles.set(annotation.id, bubble);
+      window.requestAnimationFrame(() => {
+        bubble.classList.add("celluloid-bubble--visible");
+      });
     }
 
-    const activeIds = new Set(active.map((a) => a.id));
     for (const [id, item] of this.listItems) {
       item.classList.toggle("celluloid-item--active", activeIds.has(id));
     }
@@ -364,10 +507,19 @@ class CelluloidWatch {
 
   private teardownUi(): void {
     if (this.player) this.player.off("timeupdate", this.onTimeUpdate);
+    this.panelHeightObserver?.disconnect();
+    this.panelHeightObserver = null;
+    window.removeEventListener("resize", this.syncPanelHeight);
+    this.videoWrapper = null;
     this.overlay?.remove();
     this.panel?.remove();
     for (const marker of this.markers) marker.remove();
+    this.player
+      ?.el()
+      .querySelector(".celluloid-markers-layer")
+      ?.remove();
     this.overlay = null;
+    this.overlayBubbles.clear();
     this.panel = null;
     this.markers = [];
     this.listItems.clear();
@@ -375,8 +527,14 @@ class CelluloidWatch {
 
   private cleanup(): void {
     this.teardownUi();
+    this.closeModal();
+    if (this.toolbarTimer !== null) {
+      clearInterval(this.toolbarTimer);
+      this.toolbarTimer = null;
+    }
+    this.toolbarButton?.remove();
+    this.toolbarButton = null;
     this.annotations = [];
-    this.projectTitle = "";
     this.projectReference = "";
     this.canEdit = false;
     this.initialized = false;
