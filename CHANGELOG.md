@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.30](https://github.com/celluloid-camp/peertube-plugin-celluloid/compare/peertube-plugin-celluloid-v0.1.29...peertube-plugin-celluloid-v0.1.30) (2026-09-22)
+
+
+### Features
+
+* update project linking to use share codes instead of IDs ([461e123](https://github.com/celluloid-camp/peertube-plugin-celluloid/commit/461e12335bcb47b63f44f6ecc1020b98c9f17e52))
+* update UI ([6f21f36](https://github.com/celluloid-camp/peertube-plugin-celluloid/commit/6f21f363e987574b1be0b40f8f5162f6e2a1c968))
+
 ## [0.1.29](https://github.com/celluloid-camp/peertube-plugin-celluloid/compare/peertube-plugin-celluloid-v0.1.28...peertube-plugin-celluloid-v0.1.29) (2026-09-21)
 
 
