@@ -1,6 +1,6 @@
 import type { RegisterServerOptions } from "@peertube/peertube-types";
 import {
-  extractProjectId,
+  extractShareCode,
   fetchProjectAnnotations,
   normalizeCelluloidUrl,
 } from "./celluloid";
@@ -33,7 +33,7 @@ export async function register({
       "Base URL of the Celluloid instance exposing the API, e.g. <code>https://celluloid.me</code>.",
   });
 
-  // Persist the linked project when a video is created or updated via the form.
+  // Persist the linked share code when a video is created or updated via the form.
   const storeProjectFromRequest = async (params: {
     video: { uuid: string };
     req?: { body?: { pluginData?: Record<string, unknown> } };
@@ -49,7 +49,7 @@ export async function register({
       await storageManager.storeData(key, null);
       return;
     }
-    await storageManager.storeData(key, String(value));
+    await storageManager.storeData(key, extractShareCode(String(value)));
   };
 
   for (const target of [
@@ -151,22 +151,28 @@ export async function register({
       const celluloidUrl = await getCelluloidUrl();
 
       if (!reference) {
-        res.json({ linked: false, canEdit, projectReference: "", celluloidUrl });
+        res.json({
+          linked: false,
+          canEdit,
+          projectReference: "",
+          shareCode: "",
+          celluloidUrl,
+        });
         return;
       }
 
-      const projectId = extractProjectId(reference);
-      const { project, annotations } = await fetchProjectAnnotations(
+      const { project, annotations, shareCode } = await fetchProjectAnnotations(
         celluloidUrl,
-        projectId,
+        reference,
       );
 
       res.json({
-        linked: true,
+        linked: Boolean(project),
         canEdit,
-        projectReference: reference,
+        projectReference: shareCode || reference,
+        shareCode: shareCode || extractShareCode(reference),
         celluloidUrl,
-        projectId,
+        projectId: project?.id,
         project,
         annotations,
       });
@@ -176,7 +182,7 @@ export async function register({
     }
   });
 
-  // Write endpoint: link/unlink a video to a Celluloid project.
+  // Write endpoint: link/unlink a video via a Celluloid share code.
   router.post("/videos/:uuid/project", async (req, res) => {
     const uuid = req.params.uuid;
     const user = await getUser(res);
@@ -191,11 +197,51 @@ export async function register({
     }
 
     const body = parseBody(req as { body?: unknown; rawBody?: Buffer });
-    const raw = typeof body.project === "string" ? body.project.trim() : "";
+    const rawInput =
+      typeof body.shareCode === "string"
+        ? body.shareCode
+        : typeof body.project === "string"
+          ? body.project
+          : "";
+    const shareCode = extractShareCode(rawInput);
     const key = projectStorageKey(uuid);
 
-    await storageManager.storeData(key, raw === "" ? null : raw);
-    res.json({ ok: true, projectReference: raw, projectId: extractProjectId(raw) });
+    if (!shareCode) {
+      await storageManager.storeData(key, null);
+      res.json({
+        ok: true,
+        projectReference: "",
+        shareCode: "",
+        projectId: null,
+      });
+      return;
+    }
+
+    try {
+      const celluloidUrl = await getCelluloidUrl();
+      const { project, shareCode: resolved } = await fetchProjectAnnotations(
+        celluloidUrl,
+        shareCode,
+      );
+      if (!project) {
+        res
+          .status(404)
+          .json({ error: "Unknown or invalid Celluloid share code" });
+        return;
+      }
+
+      const stored = resolved || shareCode;
+      await storageManager.storeData(key, stored);
+      res.json({
+        ok: true,
+        projectReference: stored,
+        shareCode: stored,
+        projectId: project.id,
+      });
+    } catch (err) {
+      logger.error("[celluloid] failed to resolve share code", { err });
+      res.status(502).json({ error: "Unable to resolve Celluloid share code" });
+    }
   });
 }
 

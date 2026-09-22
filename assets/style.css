@@ -368,6 +368,27 @@ my-dynamic-form-field input#celluloid-project {
   background: var(--input-bg-in-modal, var(--input-bg));
 }
 
+.celluloid-modal__create {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 1px solid #ff8c00;
+  border-radius: var(--input-border-radius, 4px);
+  background: transparent;
+  color: #ff8c00;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.celluloid-modal__create:hover {
+  background: #ff8c00;
+  color: #fff;
+}
+
 .celluloid-project-info {
   display: flex;
   flex-direction: column;

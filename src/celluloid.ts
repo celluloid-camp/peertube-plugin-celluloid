@@ -7,8 +7,8 @@
  *   GET <base>/api/trpc/<procedure>?input=<url-encoded {"json": <input>}>
  *   -> { "result": { "data": { "json": <value> } } }
  *
- * `annotation.byProjectId` is a public procedure, so no authentication is
- * required to read a project's annotations.
+ * Projects are linked with a share code (`project.byShareCode`). Annotations
+ * are then loaded with `annotation.byProjectId` (public).
  */
 
 export interface CelluloidUser {
@@ -58,16 +58,39 @@ export interface CelluloidProject {
   duration: number;
   host: string | null;
   videoId: string;
+  shareCode?: string | null;
 }
 
 export interface CelluloidData {
   project: CelluloidProject | null;
   annotations: CelluloidAnnotation[];
+  shareCode: string;
 }
 
 const DEFAULT_CELLULOID_URL = "https://celluloid.me";
 
-/** Accepts a raw project id or any Celluloid URL containing `/project/<id>`. */
+/**
+ * Accepts a bare share code or a Celluloid URL that carries `?code=…`
+ * (e.g. `/join?code=my-project-1234` / `/student-signup?code=…`).
+ */
+export function extractShareCode(reference: string): string {
+  const trimmed = (reference || "").trim();
+  if (!trimmed) return "";
+
+  try {
+    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) || trimmed.includes("?")) {
+      const url = new URL(trimmed, DEFAULT_CELLULOID_URL);
+      const code = url.searchParams.get("code");
+      if (code?.trim()) return code.trim();
+    }
+  } catch {
+    /* not a URL — treat as a bare share code */
+  }
+
+  return trimmed;
+}
+
+/** @deprecated Prefer extractShareCode — kept for reading legacy stored project ids. */
 export function extractProjectId(reference: string): string {
   const trimmed = (reference || "").trim();
   const match = trimmed.match(/\/project\/([^/?#]+)/);
@@ -108,25 +131,56 @@ async function trpcQuery<T>(
   return unwrap<T>(await response.json());
 }
 
+function looksLikeUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 /**
- * Fetches a project (best-effort) and its annotations.
- * Annotations are always fetched; the project lookup is optional metadata.
+ * Resolves a share code (or legacy project id / URL) to a project + annotations.
  */
 export async function fetchProjectAnnotations(
   base: string,
-  projectId: string,
+  reference: string,
 ): Promise<CelluloidData> {
-  const [projectResult, annotations] = await Promise.all([
-    trpcQuery<CelluloidProject>(base, "project.byId", { id: projectId }).catch(
-      () => null,
-    ),
-    trpcQuery<CelluloidAnnotation[]>(base, "annotation.byProjectId", {
-      id: projectId,
-    }),
-  ]);
+  const shareCode = extractShareCode(reference);
+  if (!shareCode) {
+    return { project: null, annotations: [], shareCode: "" };
+  }
+
+  let project: CelluloidProject | null = null;
+  let resolvedShareCode = shareCode;
+
+  try {
+    project = await trpcQuery<CelluloidProject>(base, "project.byShareCode", {
+      shareCode,
+    });
+    if (project?.shareCode) resolvedShareCode = project.shareCode;
+  } catch {
+    // Legacy links stored a project id or /project/<id> URL.
+    const legacyId = extractProjectId(reference);
+    if (legacyId && (looksLikeUuid(legacyId) || legacyId !== shareCode)) {
+      project = await trpcQuery<CelluloidProject>(base, "project.byId", {
+        id: legacyId,
+      }).catch(() => null);
+      if (project?.shareCode) resolvedShareCode = project.shareCode;
+    }
+  }
+
+  if (!project?.id) {
+    return { project: null, annotations: [], shareCode: resolvedShareCode };
+  }
+
+  const annotations = await trpcQuery<CelluloidAnnotation[]>(
+    base,
+    "annotation.byProjectId",
+    { id: project.id },
+  ).catch(() => [] as CelluloidAnnotation[]);
 
   return {
-    project: projectResult,
+    project,
     annotations: Array.isArray(annotations) ? annotations : [],
+    shareCode: resolvedShareCode,
   };
 }

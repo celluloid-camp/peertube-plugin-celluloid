@@ -1,11 +1,12 @@
 import type { RegisterClientOptions } from "@peertube/peertube-types/client";
 import type { CelluloidAnnotation, CelluloidProject } from "../celluloid";
-import { extractProjectId, normalizeCelluloidUrl } from "../celluloid";
+import { extractShareCode, normalizeCelluloidUrl } from "../celluloid";
 
 interface AnnotationsResponse {
   linked: boolean;
   canEdit: boolean;
   projectReference?: string;
+  shareCode?: string;
   celluloidUrl?: string;
   projectId?: string;
   project?: CelluloidProject | null;
@@ -141,7 +142,8 @@ class CelluloidWatch {
       if (this.videoUuid !== uuid) return;
 
       this.canEdit = data.canEdit === true;
-      this.projectReference = data.projectReference ?? "";
+      this.projectReference =
+        data.shareCode ?? data.projectReference ?? "";
       this.projectId = data.projectId ?? "";
       this.celluloidUrl = normalizeCelluloidUrl(data.celluloidUrl);
       this.project = data.project ?? null;
@@ -338,10 +340,16 @@ class CelluloidWatch {
     return list;
   }
 
-  private projectUrl(reference = this.projectReference): string | null {
-    const id = extractProjectId(reference);
+  private projectUrl(): string | null {
+    const id = this.projectId || this.project?.id;
     if (!id) return null;
     return `${this.celluloidUrl}/project/${id}`;
+  }
+
+  private createProjectUrl(): string {
+    const url = new URL(`${this.celluloidUrl}/create/link`);
+    url.searchParams.set("url", window.location.href);
+    return url.toString();
   }
 
   private openLinkModal(): void {
@@ -363,8 +371,8 @@ class CelluloidWatch {
     header.className = "celluloid-modal__header";
     const heading = document.createElement("span");
     heading.textContent = this.projectReference
-      ? "Edit the linked Celluloid project"
-      : "Link a Celluloid project";
+      ? "Edit the linked Celluloid share code"
+      : "Link a Celluloid share code";
     const close = document.createElement("button");
     close.type = "button";
     close.className = "celluloid-modal__close";
@@ -380,7 +388,7 @@ class CelluloidWatch {
     const input = document.createElement("input");
     input.type = "text";
     input.className = "celluloid-editor__input";
-    input.placeholder = "Celluloid project id or URL";
+    input.placeholder = "Celluloid share code";
     input.value = this.projectReference;
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") this.saveLink(input.value, dialog);
@@ -401,9 +409,19 @@ class CelluloidWatch {
     message.className = "celluloid-editor__message";
     body.appendChild(message);
 
+    if (!this.projectReference) {
+      const create = document.createElement("a");
+      create.className = "celluloid-modal__create";
+      create.href = this.createProjectUrl();
+      create.target = "_blank";
+      create.rel = "noopener noreferrer";
+      create.textContent = "Create new Celluloid project";
+      body.appendChild(create);
+    }
+
     const refreshProjectUi = (): void => {
-      const value = input.value.trim();
-      const url = this.projectUrl(value);
+      const value = extractShareCode(input.value);
+      const url = this.projectUrl();
       const showInfo = Boolean(value);
 
       info.replaceChildren();
@@ -416,11 +434,11 @@ class CelluloidWatch {
       const title = document.createElement("div");
       title.className = "celluloid-project-info__title";
       const known =
-        this.project &&
-        extractProjectId(value) === (this.projectId || this.project.id);
+        Boolean(this.project) &&
+        value === (this.projectReference || this.project?.shareCode || "");
       title.textContent = known
         ? this.project?.title || "Linked Celluloid project"
-        : "Celluloid project";
+        : "Celluloid share code";
       info.appendChild(title);
 
       const meta = document.createElement("div");
@@ -434,8 +452,7 @@ class CelluloidWatch {
           `${this.annotations.length} annotation${this.annotations.length === 1 ? "" : "s"}`,
         );
       }
-      const id = extractProjectId(value);
-      if (id) bits.push(id);
+      if (value) bits.push(value);
       meta.textContent = bits.join(" · ");
       info.appendChild(meta);
 
@@ -446,9 +463,11 @@ class CelluloidWatch {
         info.appendChild(desc);
       }
 
-      if (url) {
+      if (url && known) {
         open.href = url;
         info.appendChild(open);
+      } else {
+        open.remove();
       }
     };
 
@@ -529,7 +548,7 @@ class CelluloidWatch {
             ...this.helpers.getAuthHeader(),
             "content-type": "application/json",
           },
-          body: JSON.stringify({ project: value }),
+          body: JSON.stringify({ shareCode: value }),
         },
       );
 
@@ -538,7 +557,9 @@ class CelluloidWatch {
           message.textContent =
             response.status === 403
               ? "You are not allowed to edit this video."
-              : "Failed to save the link.";
+              : response.status === 404
+                ? "Unknown or invalid Celluloid share code."
+                : "Failed to save the link.";
         }
         setDisabled(false);
         return;

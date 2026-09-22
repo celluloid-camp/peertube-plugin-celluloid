@@ -8,9 +8,9 @@ on the player.
 
 ## Features
 
-- Link a video to a Celluloid project (id or `https://celluloid.me/project/<id>`
-URL), from the video form or from a button on the watch page (owner, moderators
-and admins only).
+- Link a video to a Celluloid project with its **share code** (from the
+  Celluloid project share panel), from the video form or from a button on the
+  watch page (owner, moderators and admins only).
 - On the watch page, displays the project's annotations as a synced text overlay,
 progress-bar markers, and a clickable list below the player.
 
